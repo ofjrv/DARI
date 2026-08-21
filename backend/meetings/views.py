@@ -583,25 +583,72 @@ class MeetingMemoDeleteView(APIView):
 class ActionItemUpdateView(APIView):
     """
     [Action Item 수정 API (PATCH)]
+    담당자 지정 / 마감일 지정 / 완료 여부 변경
     """
     permission_classes = [IsAuthenticated]
 
     def patch(self, request, item_id):
         action_item = get_object_or_404(ActionItem, id=item_id)
-        data = request.data
-        if 'is_completed' in data:
-            action_item.is_completed = bool(data['is_completed'])
 
-        if 'assignee' in data:
-            action_item.assignee = str(data['assignee']).strip() or '미지정'
+        # 1. 완료 여부
+        if 'is_completed' in request.data:
+            value = request.data.get('is_completed')
 
-        if 'due_date' in data:
-            due_date_val = data['due_date']
-            action_item.due_date = due_date_val if due_date_val else None
+            # 문자열로 들어오는 경우도 안전하게 처리
+            if isinstance(value, bool):
+                action_item.is_completed = value
+            elif str(value).lower() == 'true':
+                action_item.is_completed = True
+            elif str(value).lower() == 'false':
+                action_item.is_completed = False
+            else:
+                return Response(
+                    {'error': 'is_completed는 true 또는 false여야 합니다.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # 2. 담당자
+        if 'assignee' in request.data:
+            assignee = request.data.get('assignee')
+
+            if assignee is None:
+                action_item.assignee = '미지정'
+            else:
+                assignee = str(assignee).strip()
+                action_item.assignee = assignee or '미지정'
+
+        # 3. 마감일
+        if 'due_date' in request.data:
+            due_date = request.data.get('due_date')
+
+            if due_date in [None, '']:
+                action_item.due_date = None
+            else:
+                try:
+                    from datetime import datetime
+
+                    action_item.due_date = datetime.strptime(
+                        str(due_date),
+                        '%Y-%m-%d'
+                    ).date()
+
+                except ValueError:
+                    return Response(
+                        {
+                            'error': 'due_date 형식이 올바르지 않습니다.',
+                            'expected_format': 'YYYY-MM-DD'
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
 
         action_item.save()
+
         serializer = ActionItemSerializer(action_item)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK
+        )
 
 class MeetingShareTextView(APIView):
     """
